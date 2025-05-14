@@ -42,8 +42,6 @@ const apartmentController = {
         wall_area,
         usable_area,
       };
-
-      // Nếu có file ảnh mới, thêm tên file vào data
       if (req.file) {
         data.image = req.file.filename;
       }

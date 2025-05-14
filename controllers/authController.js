@@ -52,12 +52,10 @@ const authController = {
     const { email, password } = req.body;
 
     try {
-      // Kiểm tra dữ liệu đầu vào
       if (!email || !password) {
         return res.status(400).json({ error: 'Vui lòng cung cấp email và mật khẩu' });
       }
 
-      // Tìm người dùng theo email
       const user = await User.findByEmail(email);
       if (!user) {
         return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });

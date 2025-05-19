@@ -55,7 +55,7 @@ app.use((err, req, res, next) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to 360 Tour API FOR VIDEO CALL' });
+  res.json({ message: 'Welcome to 360 Tour API - Updated for Multi-Party Video' });
 });
 
 // Tạo server HTTP và gắn Socket.IO
@@ -115,13 +115,6 @@ io.on('connection', (socket) => {
       io.to(targetUserId).emit('ice-candidate', { candidate, senderUserId: socket.id, senderUserName: userName });
     }
   });
-  socket.on('video-status-update', (data) => {
-        socket.to(data.roomId).emit('video-status-update', {
-            userId: socket.id,
-            userName: data.userName,
-            isVideoOff: data.isVideoOff
-        });
-    });
 
   socket.on('leave', ({ roomId }) => {
     const leavingUserName = users[socket.id];

@@ -1,10 +1,7 @@
-// Original file: pasted_content.txt (server.js)
-// Updated by Manus to support multi-party video calls (mesh architecture)
-
 const express = require('express');
 const cors = require('cors');
-const apartmentRoutes = require('./routes/apartmentRoutes'); // Assuming these routes exist and are correct
-const authRoutes = require('./routes/authRoutes'); // Assuming these routes exist and are correct
+const apartmentRoutes = require('./routes/apartmentRoutes');
+const authRoutes = require('./routes/authRoutes');
 const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -12,29 +9,28 @@ const app = express();
 
 // Danh sách các nguồn gốc được phép
 const allowedOrigins = [
-  'http://192.168.1.38',
-  'http://192.168.1.38:3001',
-  'http://192.168.1.38:3000',
-  'http://localhost:3001',
-  'http://localhost:3000',
-  'http://localhost',
-  'https://3dtourvietnam.store:3001',
-  'https://3dtourvietnam.store'
-  // Add any other origins if necessary, or use a more flexible approach for development
+    'http://192.168.1.38',
+    'http://192.168.1.38:3001',
+    'http://192.168.1.38:3000',
+    'http://localhost:3001',
+    'http://localhost:3000',
+    'http://localhost',
+    'https://3dtourvietnam.store:3001',
+    'https://3dtourvietnam.store'
 ];
 
 // Cấu hình CORS
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('Bị chặn bởi CORS:', origin);
-      callback(new Error('Bị chặn bởi CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log('Bị chặn bởi CORS:', origin);
+            callback(new Error('Bị chặn bởi CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
 }));
 
 // Middleware
@@ -50,143 +46,207 @@ app.use('/api/auth', authRoutes);
 
 // Middleware xử lý lỗi
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Có lỗi xảy ra!', error: err.message });
+    console.error(err.stack);
+    res.status(500).json({ message: 'Có lỗi xảy ra!', error: err.message });
 });
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to 360 Tour API FOR VIDEO CALL' });
+    res.json({ message: 'Welcome to 360 Tour API FOR VIDEO CALL' });
 });
 
 // Tạo server HTTP và gắn Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true }
+    cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true }
 });
 
-// --- Updated WebRTC Signaling Logic for Multi-Party ---
-const users = {}; // { socketId: userName }
+// WebRTC Signaling Logic
+const users = {}; // { socketId: { userName, isVideoOff, isAudioMuted } }
 const roomParticipants = {}; // { roomId: Set<socketId> }
+const roomCreators = {}; // { roomId: socketId }
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+    console.log('Client connected:', socket.id);
 
-  socket.on('join', ({ roomId, userName }) => {
-    console.log(`Join request: ${userName} (${socket.id}) to room ${roomId}`);
-    users[socket.id] = userName;
+    socket.on('join', ({ roomId, userName, isVideoOff, isAudioMuted }) => {
+        console.log(`Join request: ${userName} (${socket.id}) to room ${roomId}`);
+        users[socket.id] = { userName, isVideoOffdefiedMuted: true, isVideoOff: isVideoOff || true, isAudioMuted: isAudioMuted || true };
 
-    if (!roomParticipants[roomId]) {
-      roomParticipants[roomId] = new Set();
-    }
-
-    const existingPeersInRoom = [];
-    if (roomParticipants[roomId].size > 0) {
-      roomParticipants[roomId].forEach(participantId => {
-        if (users[participantId]) { // Ensure user data exists
-          existingPeersInRoom.push({ userId: participantId, userName: users[participantId] });
+        if (!roomParticipants[roomId]) {
+            roomParticipants[roomId] = new Set();
+            roomCreators[roomId] = socket.id; // Lưu người tạo phòng
         }
-      });
-    }
-    socket.emit('existing-room-peers', { peers: existingPeersInRoom });
 
-    roomParticipants[roomId].forEach(participantId => {
-      io.to(participantId).emit('new-user-joined', { userId: socket.id, userName: userName });
+        const existingPeersInRoom = [];
+        if (roomParticipants[roomId].size > 0) {
+            roomParticipants[roomId].forEach(participantId => {
+                if (users[participantId]) {
+                    existingPeersInRoom.push({
+                        userId: participantId,
+                        userName: users[participantId].userName,
+                        isVideoOff: users[participantId].isVideoOff,
+                        isAudioMuted: users[participantId].isAudioMuted
+                    });
+                }
+            });
+        }
+        socket.emit('existing-room-peers', { peers: existingPeersInRoom });
+
+        roomParticipants[roomId].forEach(participantId => {
+            io.to(participantId).emit('new-user-joined', { userId: socket.id, userName });
+        });
+
+        socket.join(roomId);
+        roomParticipants[roomId].add(socket.id);
+
+        console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id].userName} (${id})`));
+    });
+    
+    socket.on('view-update', ({ roomId, userName, view }) => {
+        // Chỉ cho phép người tạo phòng gửi cập nhật view
+        if (socket.id === roomCreators[roomId]) {
+            socket.to(roomId).emit('view-update', { view, userName });
+        } else {
+            console.log(`View update from ${userName} (${socket.id}) rejected: Not room creator.`);
+        }
+    });
+    
+    // Thêm sự kiện mới cho đồng bộ scene
+    socket.on('scene-update', ({ roomId, userName, scene }) => {
+        // Chỉ cho phép người tạo phòng gửi cập nhật scene
+        if (socket.id === roomCreators[roomId]) {
+            console.log(`Scene update from ${userName} (${socket.id}) to room ${roomId}: ${scene}`);
+            socket.to(roomId).emit('scene-update', { scene, userName });
+        } else {
+            console.log(`Scene update from ${userName} (${socket.id}) rejected: Not room creator.`);
+        }
+    });
+    
+    socket.on('request-room-creator-info', ({ roomId }) => {
+        const creatorId = roomCreators[roomId];
+        const creatorName = users[creatorId]?.userName || 'Unknown';
+        socket.emit('room-creator-info', { creatorId, creatorName });
     });
 
-    socket.join(roomId);
-    roomParticipants[roomId].add(socket.id);
+    socket.on('offer', ({ targetUserId, offer, userName }) => {
+        console.log(`Offer from ${userName} (${socket.id}) to ${targetUserId}`);
+        io.to(targetUserId).emit('offer', { offer, senderUserId: socket.id, senderUserName: userName });
+    });
 
-    console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id]} (${id})`));
-  });
+    socket.on('answer', ({ targetUserId, answer, userName }) => {
+        console.log(`Answer from ${userName} (${socket.id}) to ${targetUserId}`);
+        io.to(targetUserId).emit('answer', { answer, senderUserId: socket.id, senderUserName: userName });
+    });
 
-  socket.on('offer', ({ targetUserId, offer, userName }) => { // userName is the sender's name
-    console.log(`Offer from ${userName} (${socket.id}) to ${targetUserId}`);
-    io.to(targetUserId).emit('offer', { offer, senderUserId: socket.id, senderUserName: userName });
-  });
+    socket.on('ice-candidate', ({ targetUserId, candidate, userName }) => {
+        if (candidate) {
+            io.to(targetUserId).emit('ice-candidate', { candidate, senderUserId: socket.id, senderUserName: userName });
+        }
+    });
 
-  socket.on('answer', ({ targetUserId, answer, userName }) => { // userName is the sender's name
-    console.log(`Answer from ${userName} (${socket.id}) to ${targetUserId}`);
-    io.to(targetUserId).emit('answer', { answer, senderUserId: socket.id, senderUserName: userName });
-  });
-
-  socket.on('ice-candidate', ({ targetUserId, candidate, userName }) => { // userName is the sender's name
-    // console.log(`ICE candidate from ${userName} (${socket.id}) to ${targetUserId}`);
-    if (candidate) {
-      io.to(targetUserId).emit('ice-candidate', { candidate, senderUserId: socket.id, senderUserName: userName });
-    }
-  });
-  socket.on('video-status-update', (data) => {
+    socket.on('video-status-update', (data) => {
+        console.log(`Broadcasting video-status-update from ${data.userName} (${socket.id}) to room ${data.roomId}`);
+        if (users[socket.id]) users[socket.id].isVideoOff = data.isVideoOff;
         socket.to(data.roomId).emit('video-status-update', {
             userId: socket.id,
             userName: data.userName,
             isVideoOff: data.isVideoOff
         });
+        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id].userName} (${id})`));
     });
 
-  socket.on('leave', ({ roomId }) => {
-    const leavingUserName = users[socket.id];
-    console.log(`User ${leavingUserName} (${socket.id}) leaving room ${roomId}`);
-    
-    if (roomParticipants[roomId]) {
-      socket.leave(roomId);
-      roomParticipants[roomId].delete(socket.id);
-      delete users[socket.id];
+    socket.on('audio-status-update', (data) => {
+        console.log(`Broadcasting audio-status-update from ${data.userName} (${socket.id}) to room ${data.roomId}`);
+        if (users[socket.id]) users[socket.id].isAudioMuted = data.isAudioMuted;
+        socket.to(data.roomId).emit('audio-status-update', {
+            userId: socket.id,
+            userName: data.userName,
+            isAudioMuted: data.isAudioMuted
+        });
+        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id].userName} (${id})`));
+    });
+    socket.on('screen-sharing-update', ({ roomId, userName, isSharing }) => {
+        console.log(`User ${userName} in room ${roomId} screen sharing state: ${isSharing}`);
+        socket.to(roomId).emit('screen-sharing-update', { userId: socket.id, userName, isSharing });
+    });
 
-      roomParticipants[roomId].forEach(participantId => {
-        io.to(participantId).emit('user-left', { userId: socket.id, userName: leavingUserName });
-      });
+    socket.on('cursor-move', ({ roomId, userName, position }) => {
+        socket.to(roomId).emit('cursor-move', { position, userName });
+    });
 
-      if (roomParticipants[roomId].size === 0) {
-        delete roomParticipants[roomId];
-        console.log(`Room ${roomId} deleted as it's empty.`);
-      }
-      console.log(`Room ${roomId} participants after leave:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]} (${id})`));
-    }
-  });
+    socket.on('action-perform', ({ roomId, userName, type, position, target, deltaX, deltaY }) => {
+        socket.to(roomId).emit('action-perform', { type, position, target, deltaX, deltaY, userName });
+    });
 
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-    const disconnectedUserName = users[socket.id];
-    if (disconnectedUserName) {
-      for (const roomId in roomParticipants) {
-        if (roomParticipants[roomId].has(socket.id)) {
-          roomParticipants[roomId].delete(socket.id);
-          
-          roomParticipants[roomId].forEach(participantId => {
-            io.to(participantId).emit('user-left', { userId: socket.id, userName: disconnectedUserName });
-          });
 
-          if (roomParticipants[roomId].size === 0) {
-            delete roomParticipants[roomId];
-            console.log(`Room ${roomId} deleted due to disconnect, was empty.`);
-          }
-          console.log(`Room ${roomId} participants after disconnect:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]} (${id})`));
-          break; 
+    socket.on('url-change', ({ roomId, userName, url }) => {
+        socket.to(roomId).emit('url-change', { url, userName });
+    });
+
+    socket.on('remote-tour-state-update', ({ roomId, userName, state }) => {
+        console.log(`remote-tour-state-update from ${userName} in room ${roomId}:`, state);
+        socket.to(roomId).emit('remote-tour-state-update', { state, userName });
+    });
+
+    socket.on('remote-control-toggle', ({ roomId, userName, isActive }) => {
+        socket.to(roomId).emit('remote-control-toggle', { userId: socket.id, userName, isActive });
+    });
+
+    socket.on('leave', ({ roomId }) => {
+        const leavingUserName = users[socket.id]?.userName;
+        console.log(`User ${leavingUserName} (${socket.id}) leaving room ${roomId}`);
+
+        if (roomParticipants[roomId]) {
+            socket.leave(roomId);
+            roomParticipants[roomId].delete(socket.id);
+            delete users[socket.id];
+
+            roomParticipants[roomId].forEach(participantId => {
+                io.to(participantId).emit('user-left', { userId: socket.id, userName: leavingUserName });
+            });
+
+            if (roomParticipants[roomId].size === 0) {
+                delete roomParticipants[roomId];
+                delete roomCreators[roomId];
+                console.log(`Room ${roomId} deleted as it's empty.`);
+            }
+            console.log(`Room ${roomId} participants after leave:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName} (${id})`));
         }
-      }
-    }
-    delete users[socket.id];
-  });
+    });
 
-  // Handle screen sharing state propagation if needed, current client logic might handle it via WebRTC track replacement
-  socket.on('screen-sharing', ({ roomId, isSharing, userName }) => {
-    console.log(`User ${userName} in room ${roomId} screen sharing state: ${isSharing}`);
-    // Broadcast this to other users in the room if UI needs to reflect this explicitly
-    // For example, to show an icon next to the user's name
-    socket.to(roomId).emit('screen-sharing-update', { userId: socket.id, userName, isSharing });
-  });
+    socket.on('disconnect', () => {
+        console.log('Client disconnected:', socket.id);
+        const disconnectedUserName = users[socket.id]?.userName;
+        if (disconnectedUserName) {
+            for (const roomId in roomParticipants) {
+                if (roomParticipants[roomId].has(socket.id)) {
+                    roomParticipants[roomId].delete(socket.id);
 
+                    roomParticipants[roomId].forEach(participantId => {
+                        io.to(participantId).emit('user-left', { userId: socket.id, userName: disconnectedUserName });
+                    });
+
+                    if (roomParticipants[roomId].size === 0) {
+                        delete roomParticipants[roomId];
+                        delete roomCreators[roomId];
+                        console.log(`Room ${roomId} deleted due to disconnect, was empty.`);
+                    }
+                    console.log(`Room ${roomId} participants after disconnect:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName} (${id})`));
+                    break;
+                }
+            }
+        }
+        delete users[socket.id];
+    });
 });
 
 // Khởi động server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server đang chạy trên cổng ${PORT}`);
+    console.log(`Server đang chạy trên cổng ${PORT}`);
 });
 
 // Xử lý lỗi server
 server.on('error', (err) => {
-  console.error('Server error:', err);
+    console.error('Server error:', err);
 });
-
-

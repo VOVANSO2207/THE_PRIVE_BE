@@ -60,7 +60,7 @@ const io = new Server(server, {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true }
 });
 
-// WebRTC Signaling Logic
+// Signaling 
 const users = {}; // { socketId: { userName, isVideoOff, isAudioMuted } }
 const roomParticipants = {}; // { roomId: Set<socketId> }
 const roomCreators = {}; // { roomId: socketId }
@@ -101,7 +101,7 @@ io.on('connection', (socket) => {
 
         console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id].userName} (${id})`));
     });
-    
+
     socket.on('view-update', ({ roomId, userName, view }) => {
         // Chỉ cho phép người tạo phòng gửi cập nhật view
         if (socket.id === roomCreators[roomId]) {
@@ -110,7 +110,7 @@ io.on('connection', (socket) => {
             console.log(`View update from ${userName} (${socket.id}) rejected: Not room creator.`);
         }
     });
-    
+
     // Thêm sự kiện mới cho đồng bộ scene
     socket.on('scene-update', ({ roomId, userName, scene }) => {
         // Chỉ cho phép người tạo phòng gửi cập nhật scene
@@ -121,7 +121,7 @@ io.on('connection', (socket) => {
             console.log(`Scene update from ${userName} (${socket.id}) rejected: Not room creator.`);
         }
     });
-    
+
     socket.on('request-room-creator-info', ({ roomId }) => {
         const creatorId = roomCreators[roomId];
         const creatorName = users[creatorId]?.userName || 'Unknown';
@@ -178,7 +178,10 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('action-perform', { type, position, target, deltaX, deltaY, userName });
     });
 
-
+    socket.on('speaking-status-update', (data) => {
+        const { roomId, userId, userName, isSpeaking } = data;
+        socket.to(roomId).emit('speaking-status-update', { userId, userName, isSpeaking });
+    });
     socket.on('url-change', ({ roomId, userName, url }) => {
         socket.to(roomId).emit('url-change', { url, userName });
     });

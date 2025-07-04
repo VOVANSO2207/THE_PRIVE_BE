@@ -170,17 +170,13 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('screen-sharing-update', { userId: socket.id, userName, isSharing });
     });
 
-    socket.on('cursor-move', ({ roomId, userName, position }) => {
-        socket.to(roomId).emit('cursor-move', { position, userName });
-    });
 
     socket.on('action-perform', ({ roomId, userName, type, position, target, deltaX, deltaY }) => {
         socket.to(roomId).emit('action-perform', { type, position, target, deltaX, deltaY, userName });
     });
 
-    socket.on('speaking-status-update', (data) => {
-        const { roomId, userId, userName, isSpeaking } = data;
-        socket.to(roomId).emit('speaking-status-update', { userId, userName, isSpeaking });
+    socket.on('speaking-status-update', ({ roomId, userId, isSpeaking }) => {
+        socket.to(roomId).emit('speaking-status-update', { userId, isSpeaking });
     });
     socket.on('url-change', ({ roomId, userName, url }) => {
         socket.to(roomId).emit('url-change', { url, userName });
@@ -193,6 +189,11 @@ io.on('connection', (socket) => {
 
     socket.on('remote-control-toggle', ({ roomId, userName, isActive }) => {
         socket.to(roomId).emit('remote-control-toggle', { userId: socket.id, userName, isActive });
+    });
+
+    socket.on('cursor-move', ({ roomId, userName, x, y }) => {
+        // Gửi cho tất cả client khác trong phòng (trừ người gửi)
+        socket.to(roomId).emit('cursor-move', { userId: socket.id, userName, x, y });
     });
 
     socket.on('leave', ({ roomId }) => {

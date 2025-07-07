@@ -196,6 +196,10 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('cursor-move', { userId: socket.id, userName, x, y });
     });
 
+    socket.on('clear-remote-cursor', ({ roomId }) => {
+        socket.to(roomId).emit('clear-remote-cursor');
+    });
+
     socket.on('leave', ({ roomId }) => {
         const leavingUserName = users[socket.id]?.userName;
         console.log(`User ${leavingUserName} (${socket.id}) leaving room ${roomId}`);

@@ -63,16 +63,21 @@ const io = new Server(server, {
 // Signaling 
 const users = {}; // { socketId: { userName, isVideoOff, isAudioMuted } }
 const roomParticipants = {}; // { roomId: Set<socketId> }
-const roomCreators = {}; // { roomId: socketId }
+const roomCreators = {}; // { roomId: socketId }    
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
     socket.on('join', ({ roomId, userName, isVideoOff, isAudioMuted }) => {
-        console.log(`Join request: ${userName} (${socket.id}) to room ${roomId}`);
-        // users[socket.id] = { userName, isVideoOff: isVideoOff || true, isAudioMuted: isAudioMuted || true };
-        users[socket.id] = { userName, isVideoOffdefiedMuted: true, isVideoOff: isVideoOff || true, 
-        isAudioMuted: isAudioMuted || true };
+        console.log(`Join request: ${userName} (${socket.id}) to room ${roomId} with video: ${isVideoOff}, audio: ${isAudioMuted}`);
+        
+        // SỬA LỖI: Lưu trạng thái media một cách chính xác khi người dùng tham gia
+        users[socket.id] = { 
+            userName, 
+            isVideoOff: typeof isVideoOff === 'boolean' ? isVideoOff : false, 
+            isAudioMuted: typeof isAudioMuted === 'boolean' ? isAudioMuted : false 
+        };
+
         if (!roomParticipants[roomId]) {
             roomParticipants[roomId] = new Set();
             roomCreators[roomId] = socket.id; // Lưu người tạo phòng
@@ -85,6 +90,7 @@ io.on('connection', (socket) => {
                     existingPeersInRoom.push({
                         userId: participantId,
                         userName: users[participantId].userName,
+                        // SỬA LỖI: Gửi đi trạng thái media chính xác của những người đã ở trong phòng
                         isVideoOff: users[participantId].isVideoOff,
                         isAudioMuted: users[participantId].isAudioMuted
                     });
@@ -94,13 +100,19 @@ io.on('connection', (socket) => {
         socket.emit('existing-room-peers', { peers: existingPeersInRoom });
 
         roomParticipants[roomId].forEach(participantId => {
-            io.to(participantId).emit('new-user-joined', { userId: socket.id, userName });
+            io.to(participantId).emit('new-user-joined', { 
+                userId: socket.id, 
+                userName,
+                // SỹA LỖI: Gửi kèm trạng thái ban đầu của người mới
+                isVideoOff: users[socket.id].isVideoOff,
+                isAudioMuted: users[socket.id].isAudioMuted
+            });
         });
 
         socket.join(roomId);
         roomParticipants[roomId].add(socket.id);
 
-        console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id].userName} (${id})`));
+        console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
     });
 
     socket.on('view-update', ({ roomId, userName, view }) => {
@@ -145,32 +157,39 @@ io.on('connection', (socket) => {
         }
     });
 
+    // SỬA LỖI: Đảm bảo server vẫn nhận và phát tán trạng thái isVideoOff và isAudioMuted
     socket.on('video-status-update', (data) => {
         console.log(`Broadcasting video-status-update from ${data.userName} (${socket.id}) to room ${data.roomId}`);
+        // Cập nhật trạng thái trong bộ nhớ server
         if (users[socket.id]) users[socket.id].isVideoOff = data.isVideoOff;
+        
+        // Phát tán cho tất cả client khác trong phòng
         socket.to(data.roomId).emit('video-status-update', {
             userId: socket.id,
             userName: data.userName,
             isVideoOff: data.isVideoOff
         });
-        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id].userName} (${id})`));
+        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
     });
 
     socket.on('audio-status-update', (data) => {
         console.log(`Broadcasting audio-status-update from ${data.userName} (${socket.id}) to room ${data.roomId}`);
+        // Cập nhật trạng thái trong bộ nhớ server
         if (users[socket.id]) users[socket.id].isAudioMuted = data.isAudioMuted;
+        
+        // Phát tán cho tất cả client khác trong phòng
         socket.to(data.roomId).emit('audio-status-update', {
             userId: socket.id,
             userName: data.userName,
             isAudioMuted: data.isAudioMuted
         });
-        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id].userName} (${id})`));
+        console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
     });
+    
     socket.on('screen-sharing-update', ({ roomId, userName, isSharing }) => {
         console.log(`User ${userName} in room ${roomId} screen sharing state: ${isSharing}`);
         socket.to(roomId).emit('screen-sharing-update', { userId: socket.id, userName, isSharing });
     });
-
 
     socket.on('action-perform', ({ roomId, userName, type, position, target, deltaX, deltaY }) => {
         socket.to(roomId).emit('action-perform', { type, position, target, deltaX, deltaY, userName });
@@ -179,6 +198,7 @@ io.on('connection', (socket) => {
     socket.on('speaking-status-update', ({ roomId, userId, isSpeaking }) => {
         socket.to(roomId).emit('speaking-status-update', { userId, isSpeaking });
     });
+    
     socket.on('url-change', ({ roomId, userName, url }) => {
         socket.to(roomId).emit('url-change', { url, userName });
     });
@@ -219,7 +239,7 @@ io.on('connection', (socket) => {
                 delete roomCreators[roomId];
                 console.log(`Room ${roomId} deleted as it's empty.`);
             }
-            console.log(`Room ${roomId} participants after leave:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName} (${id})`));
+            console.log(`Room ${roomId} participants after leave:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
         }
     });
 
@@ -240,7 +260,7 @@ io.on('connection', (socket) => {
                         delete roomCreators[roomId];
                         console.log(`Room ${roomId} deleted due to disconnect, was empty.`);
                     }
-                    console.log(`Room ${roomId} participants after disconnect:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName} (${id})`));
+                    console.log(`Room ${roomId} participants after disconnect:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
                     break;
                 }
             }
@@ -259,3 +279,4 @@ server.listen(PORT, () => {
 server.on('error', (err) => {
     console.error('Server error:', err);
 });
+

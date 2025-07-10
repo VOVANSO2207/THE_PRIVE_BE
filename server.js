@@ -16,7 +16,7 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost',
     'https://3dtourvietnam.store:3001',
-    'https://3dtourvietnam.store'
+    'https://3dtourvietnam.store'   
 ];
 
 // Cấu hình CORS
@@ -70,8 +70,9 @@ io.on('connection', (socket) => {
 
     socket.on('join', ({ roomId, userName, isVideoOff, isAudioMuted }) => {
         console.log(`Join request: ${userName} (${socket.id}) to room ${roomId}`);
-        users[socket.id] = { userName, isVideoOffdefiedMuted: true, isVideoOff: isVideoOff || true, isAudioMuted: isAudioMuted || true };
-
+        users[socket.id] = { userName, isVideoOff: isVideoOff || true, isAudioMuted: isAudioMuted || true };
+        // users[socket.id] = { userName, isVideoOffdefiedMuted: true, isVideoOff: isVideoOff || true, 
+        // isAudioMuted: isAudioMuted || true };
         if (!roomParticipants[roomId]) {
             roomParticipants[roomId] = new Set();
             roomCreators[roomId] = socket.id; // Lưu người tạo phòng

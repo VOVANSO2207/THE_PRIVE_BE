@@ -97,15 +97,15 @@ io.on('connection', (socket) => {
                 }
             });
         }
-        socket.emit('existing-room-peers', { peers: existingPeersInRoom });
+        socket.emit('existing-room-peers', { peers: existingPeersInRoom, creatorId: roomCreators[roomId] });
 
         roomParticipants[roomId].forEach(participantId => {
             io.to(participantId).emit('new-user-joined', { 
                 userId: socket.id, 
                 userName,
-                // SỹA LỖI: Gửi kèm trạng thái ban đầu của người mới
                 isVideoOff: users[socket.id].isVideoOff,
-                isAudioMuted: users[socket.id].isAudioMuted
+                isAudioMuted: users[socket.id].isAudioMuted,
+                creatorId: roomCreators[roomId]
             });
         });
 

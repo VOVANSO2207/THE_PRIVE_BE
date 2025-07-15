@@ -17,8 +17,8 @@ const allowedOrigins = [
     'http://localhost',
     'https://3dtourvietnam.store:3001',
     'https://3dtourvietnam.store',
-    'https://moonwebhub.online/fu-videopresent/production',
-    'https://moonwebhub.online/fu-videopresent/production:3001',
+    'https://moonwebhub.online',
+    'https://moonwebhub.online:3001',
     'https://the-prive-be-1.onrender.com',   
 ];
 

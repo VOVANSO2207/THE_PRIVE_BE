@@ -16,7 +16,9 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost',
     'https://3dtourvietnam.store:3001',
-    'https://3dtourvietnam.store'   
+    'https://3dtourvietnam.store',
+    'https://moonwebhub.online/fu-videopresent/production',
+    'https://moonwebhub.online/fu-videopresent/production:3001'   
 ];
 
 // Cấu hình CORS
@@ -101,7 +103,7 @@ io.on('connection', (socket) => {
 
         roomParticipants[roomId].forEach(participantId => {
             io.to(participantId).emit('new-user-joined', { 
-                userId: socket.id, 
+                userId: socket.id,      
                 userName,
                 isVideoOff: users[socket.id].isVideoOff,
                 isAudioMuted: users[socket.id].isAudioMuted,

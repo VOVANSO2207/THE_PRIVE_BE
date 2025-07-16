@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
 
 exports.sendSlackNotification = async (req, res) => {
   const { creatorName, roomUrl } = req.body;

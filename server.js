@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const apartmentRoutes = require('./routes/apartmentRoutes');
 const authRoutes = require('./routes/authRoutes');
+const slackRoutes = require('./routes/slackRoutes');
 const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -46,7 +47,7 @@ app.use('/upload', express.static('upload'));
 // Routes
 app.use('/api/apartments', apartmentRoutes);
 app.use('/api/auth', authRoutes);
-
+app.use('/api/slack', slackRoutes);
 // Middleware xử lý lỗi
 app.use((err, req, res, next) => {
     console.error(err.stack);
@@ -67,6 +68,9 @@ const io = new Server(server, {
 const users = {}; // { socketId: { userName, isVideoOff, isAudioMuted } }
 const roomParticipants = {}; // { roomId: Set<socketId> }
 const roomCreators = {}; // { roomId: socketId }    
+const screenShareRequests = {}; // { roomId: { requesterId, requesterName, timestamp } }
+const roomScreenControllers = {}; // { roomId: socketId } - Người đang điều khiển màn hình
+const userScreenShareApprovals = {}; // { userId: boolean } - Trạng thái đã được duyệt của user
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -115,26 +119,37 @@ io.on('connection', (socket) => {
         socket.join(roomId);
         roomParticipants[roomId].add(socket.id);
 
+        // Gửi thông tin về người đang điều khiển màn hình (nếu có)
+        if (roomScreenControllers[roomId]) {
+            const controllerId = roomScreenControllers[roomId];
+            const controllerName = users[controllerId]?.userName || 'Unknown';
+            socket.emit('screen-sharing-update', {
+                userId: controllerId,
+                userName: controllerName,
+                isSharing: true
+            });
+        }
+
         console.log(`User ${userName} (${socket.id}) joined room ${roomId}. Participants:`, Array.from(roomParticipants[roomId]).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
     });
 
     socket.on('view-update', ({ roomId, userName, view }) => {
-        // Chỉ cho phép người tạo phòng gửi cập nhật view
-        if (socket.id === roomCreators[roomId]) {
+        // Chỉ cho phép người đang điều khiển màn hình gửi cập nhật view
+        if (socket.id === roomScreenControllers[roomId]) {
             socket.to(roomId).emit('view-update', { view, userName });
         } else {
-            console.log(`View update from ${userName} (${socket.id}) rejected: Not room creator.`);
+            console.log(`View update from ${userName} (${socket.id}) rejected: Not screen controller.`);
         }
     });
 
     // Thêm sự kiện mới cho đồng bộ scene
     socket.on('scene-update', ({ roomId, userName, scene }) => {
-        // Chỉ cho phép người tạo phòng gửi cập nhật scene
-        if (socket.id === roomCreators[roomId]) {
+        // Chỉ cho phép người đang điều khiển màn hình gửi cập nhật scene
+        if (socket.id === roomScreenControllers[roomId]) {
             console.log(`Scene update from ${userName} (${socket.id}) to room ${roomId}: ${scene}`);
             socket.to(roomId).emit('scene-update', { scene, userName });
         } else {
-            console.log(`Scene update from ${userName} (${socket.id}) rejected: Not room creator.`);
+            console.log(`Scene update from ${userName} (${socket.id}) rejected: Not screen controller.`);
         }
     });
 
@@ -142,6 +157,121 @@ io.on('connection', (socket) => {
         const creatorId = roomCreators[roomId];
         const creatorName = users[creatorId]?.userName || 'Unknown';
         socket.emit('room-creator-info', { creatorId, creatorName });
+    });
+
+    // Xử lý yêu cầu chia sẻ màn hình nâng cao
+    socket.on('screen-share-request', ({ roomId, requesterId, requesterName }) => {
+        console.log(`Screen share request from ${requesterName} (${requesterId}) in room ${roomId}`);
+        
+        const creatorId = roomCreators[roomId];
+        if (!creatorId || !users[creatorId]) {
+            console.log(`No room creator found for room ${roomId}`);
+            io.to(requesterId).emit('screen-share-approval-response', {
+                approved: false,
+                approverName: 'System',
+                error: 'Không tìm thấy người tạo phòng'
+            });
+            return;
+        }
+
+        // Kiểm tra xem có ai đang điều khiển màn hình không
+        if (roomScreenControllers[roomId] && roomScreenControllers[roomId] !== requesterId) {
+            const currentControllerName = users[roomScreenControllers[roomId]]?.userName || 'Người dùng khác';
+            io.to(requesterId).emit('screen-sharing-conflict', {
+                currentControllerName
+            });
+            return;
+        }
+
+        // Lưu yêu cầu vào bộ nhớ
+        screenShareRequests[roomId] = {
+            requesterId,
+            requesterName,
+            timestamp: Date.now()
+        };
+        
+        // Gửi yêu cầu đến người tạo phòng
+        io.to(creatorId).emit('screen-share-request', {
+            requesterId,
+            requesterName
+        });
+        
+        console.log(`Screen share request sent to room creator ${users[creatorId].userName} (${creatorId})`);
+    });
+
+    // Xử lý phản hồi duyệt chia sẻ màn hình
+    socket.on('screen-share-approval-response', ({ roomId, requesterId, approved, approverName }) => {
+        console.log(`Screen share approval response: ${approved ? 'APPROVED' : 'REJECTED'} by ${approverName} for requester ${requesterId} in room ${roomId}`);
+        
+        // Gửi phản hồi đến người yêu cầu
+        if (users[requesterId]) {
+            io.to(requesterId).emit('screen-share-approval-response', {
+                approved,
+                approverName
+            });
+            
+            // Nếu được duyệt
+            if (approved) {
+                // Đánh dấu user này đã được duyệt
+                userScreenShareApprovals[requesterId] = true;
+                
+                // Thiết lập người điều khiển màn hình
+                roomScreenControllers[roomId] = requesterId;
+                
+                const requesterName = users[requesterId]?.userName || 'Unknown';
+                
+                // Thông báo cho tất cả người trong phòng (trừ người yêu cầu)
+                socket.to(roomId).emit('screen-sharing-update', {
+                    userId: requesterId,
+                    userName: requesterName,
+                    isSharing: true
+                });
+                
+                console.log(`Screen sharing approved and activated for ${requesterName} (${requesterId}) in room ${roomId}`);
+            }
+        }
+        
+        // Xóa yêu cầu khỏi bộ nhớ
+        if (screenShareRequests[roomId] && screenShareRequests[roomId].requesterId === requesterId) {
+            delete screenShareRequests[roomId];
+        }
+    });
+
+    // Xử lý cập nhật trạng thái chia sẻ màn hình
+    socket.on('screen-sharing-update', ({ roomId, userName, isSharing }) => {
+        console.log(`User ${userName} (${socket.id}) in room ${roomId} screen sharing state: ${isSharing}`);
+        
+        if (isSharing) {
+            // Kiểm tra xem có ai đang điều khiển màn hình không
+            if (roomScreenControllers[roomId] && roomScreenControllers[roomId] !== socket.id) {
+                const currentControllerName = users[roomScreenControllers[roomId]]?.userName || 'Người dùng khác';
+                io.to(socket.id).emit('screen-sharing-conflict', {
+                    currentControllerName
+                });
+                return;
+            }
+
+            // Nếu không phải người tạo phòng, kiểm tra xem đã được duyệt chưa
+            if (socket.id !== roomCreators[roomId] && !userScreenShareApprovals[socket.id]) {
+                console.log(`Screen sharing rejected for ${userName} (${socket.id}): Not approved yet`);
+                return;
+            }
+
+            // Thiết lập người điều khiển màn hình
+            roomScreenControllers[roomId] = socket.id;
+        } else {
+            // Tắt điều khiển màn hình
+            if (roomScreenControllers[roomId] === socket.id) {
+                delete roomScreenControllers[roomId];
+            }
+        }
+
+        // Phát tán cho tất cả người dùng khác trong phòng
+        socket.to(roomId).emit('screen-sharing-update', { 
+            userId: socket.id, 
+            userName, 
+            isSharing 
+        });
     });
 
     socket.on('offer', ({ targetUserId, offer, userName }) => {
@@ -188,11 +318,6 @@ io.on('connection', (socket) => {
         });
         console.log(`Recipients in room ${data.roomId}:`, Array.from(roomParticipants[data.roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
     });
-    
-    socket.on('screen-sharing-update', ({ roomId, userName, isSharing }) => {
-        console.log(`User ${userName} in room ${roomId} screen sharing state: ${isSharing}`);
-        socket.to(roomId).emit('screen-sharing-update', { userId: socket.id, userName, isSharing });
-    });
 
     socket.on('action-perform', ({ roomId, userName, type, position, target, deltaX, deltaY }) => {
         socket.to(roomId).emit('action-perform', { type, position, target, deltaX, deltaY, userName });
@@ -233,6 +358,32 @@ io.on('connection', (socket) => {
             roomParticipants[roomId].delete(socket.id);
             delete users[socket.id];
 
+            // Xóa yêu cầu chia sẻ màn hình nếu người rời đi là người yêu cầu
+            if (screenShareRequests[roomId] && screenShareRequests[roomId].requesterId === socket.id) {
+                delete screenShareRequests[roomId];
+                console.log(`Removed screen share request from leaving user ${leavingUserName}`);
+            }
+
+            // Xóa trạng thái điều khiển màn hình nếu người rời đi đang điều khiển
+            if (roomScreenControllers[roomId] === socket.id) {
+                delete roomScreenControllers[roomId];
+                console.log(`Removed screen controller ${leavingUserName} from room ${roomId}`);
+                
+                // Thông báo cho tất cả người còn lại
+                roomParticipants[roomId].forEach(participantId => {
+                    io.to(participantId).emit('screen-sharing-update', { 
+                        userId: socket.id, 
+                        userName: leavingUserName, 
+                        isSharing: false 
+                    });
+                });
+            }
+
+            // Xóa trạng thái duyệt chia sẻ màn hình
+            if (userScreenShareApprovals[socket.id]) {
+                delete userScreenShareApprovals[socket.id];
+            }
+
             roomParticipants[roomId].forEach(participantId => {
                 io.to(participantId).emit('user-left', { userId: socket.id, userName: leavingUserName });
             });
@@ -240,6 +391,8 @@ io.on('connection', (socket) => {
             if (roomParticipants[roomId].size === 0) {
                 delete roomParticipants[roomId];
                 delete roomCreators[roomId];
+                delete screenShareRequests[roomId]; // Xóa yêu cầu chia sẻ màn hình khi phòng trống
+                delete roomScreenControllers[roomId]; // Xóa trạng thái điều khiển màn hình
                 console.log(`Room ${roomId} deleted as it's empty.`);
             }
             console.log(`Room ${roomId} participants after leave:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));
@@ -254,6 +407,32 @@ io.on('connection', (socket) => {
                 if (roomParticipants[roomId].has(socket.id)) {
                     roomParticipants[roomId].delete(socket.id);
 
+                    // Xóa yêu cầu chia sẻ màn hình nếu người disconnect là người yêu cầu
+                    if (screenShareRequests[roomId] && screenShareRequests[roomId].requesterId === socket.id) {
+                        delete screenShareRequests[roomId];
+                        console.log(`Removed screen share request from disconnected user ${disconnectedUserName}`);
+                    }
+
+                    // Xóa trạng thái điều khiển màn hình nếu người disconnect đang điều khiển
+                    if (roomScreenControllers[roomId] === socket.id) {
+                        delete roomScreenControllers[roomId];
+                        console.log(`Removed screen controller ${disconnectedUserName} from room ${roomId}`);
+                        
+                        // Thông báo cho tất cả người còn lại
+                        roomParticipants[roomId].forEach(participantId => {
+                            io.to(participantId).emit('screen-sharing-update', { 
+                                userId: socket.id, 
+                                userName: disconnectedUserName, 
+                                isSharing: false 
+                            });
+                        });
+                    }
+
+                    // Xóa trạng thái duyệt chia sẻ màn hình
+                    if (userScreenShareApprovals[socket.id]) {
+                        delete userScreenShareApprovals[socket.id];
+                    }
+
                     roomParticipants[roomId].forEach(participantId => {
                         io.to(participantId).emit('user-left', { userId: socket.id, userName: disconnectedUserName });
                     });
@@ -261,6 +440,8 @@ io.on('connection', (socket) => {
                     if (roomParticipants[roomId].size === 0) {
                         delete roomParticipants[roomId];
                         delete roomCreators[roomId];
+                        delete screenShareRequests[roomId]; // Xóa yêu cầu chia sẻ màn hình khi phòng trống
+                        delete roomScreenControllers[roomId]; // Xóa trạng thái điều khiển màn hình
                         console.log(`Room ${roomId} deleted due to disconnect, was empty.`);
                     }
                     console.log(`Room ${roomId} participants after disconnect:`, Array.from(roomParticipants[roomId] || []).map(id => `${users[id]?.userName || 'N/A'} (${id})`));

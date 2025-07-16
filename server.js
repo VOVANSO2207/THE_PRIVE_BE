@@ -10,19 +10,11 @@ const app = express();
 
 // Danh sách các nguồn gốc được phép
 const allowedOrigins = [
-    'http://192.168.1.38',
-    'http://192.168.1.38:3001',
-    'http://192.168.1.38:3000',
-    'http://localhost:3001',
-    'http://localhost:3000',
     'http://localhost',
-    'https://3dtourvietnam.store:3001',
-    'https://3dtourvietnam.store',
+    'http://localhost:3000',
+    'http://localhost:3001',
     'https://moonwebhub.online',
-    'https://moonwebhub.online:3001',
-    'https://the-prive-be-1.onrender.com',
-    'https://moonwebhub.online',
-    'https://moonwebhub.online:3001', 
+    'https://apivideo.moonwebhub.online'
 ];
 
 // Cấu hình CORS
@@ -63,7 +55,11 @@ app.get('/', (req, res) => {
 // Tạo server HTTP và gắn Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true }
+    cors: {
+        origin: allowedOrigins,
+        methods: ['GET', 'POST'],
+        credentials: true
+    }
 });
 
 // Signaling 

@@ -1,6 +1,6 @@
 const axios = require('axios');
-require('dotenv').config();
-const SLACK_WEBHOOK_URL = process.env.SLACK_URL;
+
+const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
 
 exports.sendSlackNotification = async (req, res) => {
   const { creatorName, roomUrl } = req.body;

@@ -21,8 +21,8 @@ const allowedOrigins = [
     'https://moonwebhub.online',
     'https://moonwebhub.online:3001',
     'https://the-prive-be-1.onrender.com',
-    'https://apivideo.moonwebhub.online',
-    'https://apivideo.moonwebhub.online:3001', 
+    'https://moonwebhub.online',
+    'https://moonwebhub.online:3001', 
 ];
 
 // Cấu hình CORS

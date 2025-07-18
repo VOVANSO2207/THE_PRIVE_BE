@@ -14,7 +14,9 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
     'https://moonwebhub.online',
-    'https://apivideo.moonwebhub.online'
+    'https://apivideo.moonwebhub.online',
+    'https://3dtourvietnam.store',
+    'https://3dtourvietnam.store:3001'
 ];
 
 // Cấu hình CORS

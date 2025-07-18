@@ -12,9 +12,6 @@ const app = express();
 
 // Danh sách các nguồn gốc được phép
 const allowedOrigins = [
-  'http://192.168.1.38',
-  'http://192.168.1.38:3001',
-  'http://192.168.1.38:3000',
   'http://localhost:3001',
   'http://localhost:3000',
   'http://localhost',
